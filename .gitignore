@@ -162,4 +162,3 @@ cython_debug/
 /venv
 /.venv
 .env
-/__pycache__
