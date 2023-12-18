@@ -1,9 +1,14 @@
+from contextlib import asynccontextmanager
+from datetime import datetime
+from typing import Optional
 import databases
 import enum
 import sqlalchemy
 import os
 from fastapi import FastAPI
-from pydantic import BaseModel
+from pydantic import BaseModel, validator
+from email_validator import EmailNotValidError, validate_email as validate_e
+from passlib.context import CryptContext
 
 from dotenv import load_dotenv
 
@@ -23,7 +28,12 @@ users = sqlalchemy.Table(
     sqlalchemy.Column("password", sqlalchemy.String(255)),
     sqlalchemy.Column("full_name", sqlalchemy.String(200)),
     sqlalchemy.Column("phone", sqlalchemy.String(13)),
-    sqlalchemy.Column("created_at", sqlalchemy.DateTime, nullable=False, server_default=sqlalchemy.func.now()),
+    sqlalchemy.Column(
+        "created_at",
+        sqlalchemy.DateTime,
+        nullable=False,
+        server_default=sqlalchemy.func.now(),
+    ),
     sqlalchemy.Column(
         "last_modified_at",
         sqlalchemy.DateTime,
@@ -49,6 +59,7 @@ class SizeEnum(enum.Enum):
     xl = "xl"
     xxl = "xxl"
 
+
 clothes = sqlalchemy.Table(
     "clothes",
     metadata,
@@ -57,7 +68,12 @@ clothes = sqlalchemy.Table(
     sqlalchemy.Column("color", sqlalchemy.Enum(ColorEnum), nullable=False),
     sqlalchemy.Column("size", sqlalchemy.Enum(SizeEnum), nullable=False),
     sqlalchemy.Column("photo_url", sqlalchemy.String(255)),
-    sqlalchemy.Column("created_at", sqlalchemy.DateTime, nullable=False, server_default=sqlalchemy.func.now()),
+    sqlalchemy.Column(
+        "created_at",
+        sqlalchemy.DateTime,
+        nullable=False,
+        server_default=sqlalchemy.func.now(),
+    ),
     sqlalchemy.Column(
         "last_modified_at",
         sqlalchemy.DateTime,
@@ -67,27 +83,52 @@ clothes = sqlalchemy.Table(
     ),
 )
 
+
 class BaseUser(BaseModel):
     email: str
-    full_name: str
+    full_name: Optional[str]
+
+    @validator("email")
+    def validate_email(cls, value):
+        try:
+            validate_e(value)
+            return value
+        except EmailNotValidError:
+            raise ValueError("Email is not valid")
+
+    @validator("full_name")
+    def validate_full_name(cls, value):
+        try:
+            first_name, last_name = value.split()
+            return value
+        except Exception:
+            raise ValueError("You must provide at least two names")
+
 
 class UserSignIn(BaseUser):
     password: str
 
-app = FastAPI()
+
+class UserSignOut(BaseUser):
+    phone: Optional[str]
+    created_at: datetime
+    last_modified_at: datetime
 
 
-@app.on_event("startup")
-async def startup():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     await database.connect()
-
-
-@app.on_event("shutdown")
-async def shutdown():
+    yield
     await database.disconnect()
 
-@app.post("/register/")
+app = FastAPI(lifespan=lifespan)
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+
+@app.post("/register/", response_model=UserSignOut)
 async def create_user(user: UserSignIn):
+    user.password = pwd_context.hash(user.password)
     query = users.insert().values(**user.dict())
     id_ = await database.execute(query)
-    return 
+    created_user = await database.fetch_one(users.select().where(users.c.id == id_))
+    return created_user
