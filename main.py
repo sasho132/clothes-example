@@ -23,6 +23,13 @@ database = databases.Database(DATABASE_URL)
 
 metadata = sqlalchemy.MetaData()
 
+
+class UserRole(enum.Enum):
+    super_admin = "super admin"
+    admin = "admin"
+    user = "user"
+
+
 users = sqlalchemy.Table(
     "users",
     metadata,
@@ -43,6 +50,12 @@ users = sqlalchemy.Table(
         nullable=False,
         server_default=sqlalchemy.func.now(),
         onupdate=sqlalchemy.func.now(),
+    ),
+    sqlalchemy.Column(
+        "role",
+        sqlalchemy.Enum(UserRole),
+        nullable=False,
+        server_default=UserRole.user.name,
     ),
 )
 
@@ -152,6 +165,12 @@ class CustomHTTPBearer(HTTPBearer):
 outh2_scheme = CustomHTTPBearer()
 
 
+def is_admin(request: Request):
+    user = request.state.user
+    if not user or user["role"] not in (UserRole.admin, UserRole.super_admin):
+        raise HTTPException(403, "You do not have permissions for this resource")
+
+
 def create_access_token(user):
     try:
         payload = {"sub": user["id"], "exp": datetime.utcnow() + timedelta(minutes=120)}
@@ -160,12 +179,40 @@ def create_access_token(user):
         return ex
 
 
-@app.get("/clothes", dependencies=[Depends(outh2_scheme)])
-async def get_all_clothes():
+@app.get("/clothes/", dependencies=[Depends(outh2_scheme)])
+async def get_all_clothes(request: Request):
+    user = request.state.user
     return await database.fetch_all(clothes.select())
 
 
-@app.post("/register/")
+class ClothesBase(BaseModel):
+    name: str
+    color: ColorEnum
+    size: SizeEnum
+
+
+class ClothesIn(ClothesBase):
+    pass
+
+
+class ClothesOut(ClothesBase):
+    id: int
+    created_at: datetime
+    last_modified_at: datetime
+
+
+@app.post(
+    "/clothes/",
+    response_model=ClothesOut,
+    dependencies=[Depends(outh2_scheme), Depends(is_admin)],
+    status_code=201,
+)
+async def create_clothes(clothes_data: ClothesIn):
+    id_ = await database.execute(clothes.insert().values(**clothes_data.model_dump()))
+    return await database.fetch_one(clothes.select().where(clothes.c.id == id_))
+
+
+@app.post("/register/", status_code=201)
 async def create_user(user: UserSignIn):
     user.password = pwd_context.hash(user.password)
     query = users.insert().values(**user.model_dump())
