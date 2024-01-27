@@ -1,18 +1,19 @@
+import enum
+import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from typing import Optional
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-import databases
-import enum
-import sqlalchemy
-import os
-import jwt
-from fastapi import Depends, FastAPI, HTTPException
-from pydantic import BaseModel, field_validator
-from email_validator import EmailNotValidError, validate_email as validate_e
-from passlib.context import CryptContext
 
+import databases
+import jwt
+import sqlalchemy
 from dotenv import load_dotenv
+from email_validator import EmailNotValidError
+from email_validator import validate_email as validate_e
+from fastapi import Depends, FastAPI, HTTPException
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from passlib.context import CryptContext
+from pydantic import BaseModel, field_validator
 from starlette.requests import Request
 
 load_dotenv()

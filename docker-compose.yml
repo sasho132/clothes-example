@@ -1,0 +1,13 @@
+version: "3.8"
+
+services:
+    clothes-example:
+        image: clothes-example
+        build: .
+        container_name: clothes-example
+        volumes:
+            - ./:/app
+        ports:
+            - 8000:8000
+        restart: unless-stopped
+
